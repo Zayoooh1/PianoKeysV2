@@ -17,7 +17,7 @@ def create_placeholder_sound_file(filepath, frequency=440, duration_sec=0.2, sam
         try:
             pygame.mixer.init(frequency=sample_rate, size=-16, channels=1)
         except pygame.error as e:
-            print(f"Mixer init error in create_placeholder_sound_file: {e}. Sound file creation may fail.")
+            print(f"Mixer init error in create_placeholder_sound_file: {e}")
             pass
     num_samples = int(sample_rate * duration_sec)
     bits = 16
@@ -35,7 +35,7 @@ def create_placeholder_sound_file(filepath, frequency=440, duration_sec=0.2, sam
     except Exception as e:
         print(f"Error writing WAV file {filepath}: {e}")
 
-# --- Constants (from Step 4) ---
+# --- Constants (from Step 5) ---
 SCREEN_WIDTH, SCREEN_HEIGHT, FPS = 1280, 720, 60
 BLACK, DARK_BLUE, WHITE, GREY, LIGHT_GREY, CYAN, YELLOW, RED, GREEN = (0,0,0), (10,20,40), (255,255,255), (100,100,100), (200,200,200), (0,255,255), (255,255,0), (255,0,0), (0,255,0)
 HEADER_HEIGHT_PERCENT, CONTROL_PANEL_HEIGHT_PERCENT = 0.10, 0.15
@@ -109,7 +109,7 @@ KEY_TO_MIDI_MAP = {
     pygame.K_z: 84, pygame.K_x: 86, pygame.K_c: 88
 }
 
-# --- Button Data & Rendering ---
+# --- Button Data & Rendering (from Step 5) ---
 buttons = [] # Will be list of {"id": str, "text": str, "rect": pygame.Rect, "base_color": tuple, "hover_color": tuple}
 
 def initialize_buttons():
@@ -180,20 +180,21 @@ def render_piano_roll(surface, notes_list, current_t_sec, wh_map, bl_map, fall_s
             if display_height > 0:
                 pygame.draw.rect(surface, note_color, (note_rect_x, actual_draw_top_y, note_rect_width, display_height))
 
-# --- Main Application Function (Modified for Step 5) ---
+# --- Main Application Function (from Step 5) ---
 def main_application():
-    global control_panel_font, buttons # Make buttons global for modification
+    global control_panel_font, buttons, sample_notes_sequence, song_duration, playback_time_seconds, next_note_idx_in_play_mode, autoplay_sound_played_for_note, is_paused_by_system # Ensure these are global if modified by search functions
     pygame.init()
     try:
         pygame.mixer.init(frequency=44100, size=-16, channels=1)
     except pygame.error as mixer_error:
         print(f"Mixer init error: {mixer_error}. Sound might not work.")
     main_screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Piano Tutor - Step 5")
+    pygame.display.set_caption("Piano Tutor - Step 5 Base")
     master_clock = pygame.time.Clock()
-    control_panel_font = pygame.font.SysFont("Arial", 20)
+    try: control_panel_font = pygame.font.SysFont("Arial", 20)
+    except Exception: control_panel_font = pygame.font.Font(None, 24) # Fallback
     initialize_starfield()
-    initialize_buttons() # Initialize button positions and text
+    initialize_buttons()
 
     # Sound File Setup
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -215,8 +216,8 @@ def main_application():
     mouse_button_held_midi = None
     playback_time_seconds = 0.0
     game_mode = "watch"
-    is_paused_by_user = False # For Pause button
-    is_paused_by_system = False # For Play mode waiting logic
+    is_paused_by_user = False
+    is_paused_by_system = False
     next_note_idx_in_play_mode = 0
     expected_midi_in_play_mode = None
     loop_mode_enabled = False
@@ -235,25 +236,14 @@ def main_application():
         time_step_seconds = master_clock.tick(FPS) / 1000.0
         mouse_current_pos = pygame.mouse.get_pos()
 
-        # --- Time Progression ---
         if not is_paused_by_user and not is_paused_by_system:
             playback_time_seconds += time_step_seconds
 
-        # Loop Mode Logic: Check if song ended
         if playback_time_seconds >= song_duration and song_duration > 0:
             if loop_mode_enabled:
-                playback_time_seconds = 0.0
-                next_note_idx_in_play_mode = 0
-                autoplay_sound_played_for_note.clear()
-                is_paused_by_system = False # Ensure time flows if it was paused at song end
+                playback_time_seconds = 0.0; next_note_idx_in_play_mode = 0; autoplay_sound_played_for_note.clear(); is_paused_by_system = False
                 print("Looping song.")
-            else:
-                # Song ended, not looping. Could stop, or just let time run out.
-                # For now, if in watch mode, it will just show empty roll. If play mode, it should have already stopped.
-                pass # Or handle song end explicitly e.g. is_paused_by_user = True
 
-        # --- Mode Logic (Watch/Play) ---
-        # (Code from Step 4, adapted for is_paused_by_user)
         autoplay_active_midis_visual.clear()
         if game_mode == "watch" and not is_paused_by_user:
             is_paused_by_system = False
@@ -261,207 +251,117 @@ def main_application():
                 is_active_now = note_obj.start_time <= playback_time_seconds < note_obj.start_time + note_obj.duration
                 if is_active_now:
                     autoplay_active_midis_visual.add(note_obj.note_midi)
-                    if note_idx not in autoplay_sound_played_for_note:
-                        if main_placeholder_sound: main_placeholder_sound.play()
-                        autoplay_sound_played_for_note.add(note_idx)
-                elif playback_time_seconds > note_obj.start_time + note_obj.duration:
-                    autoplay_sound_played_for_note.discard(note_idx)
+                    if note_idx not in autoplay_sound_played_for_note and main_placeholder_sound: main_placeholder_sound.play(); autoplay_sound_played_for_note.add(note_idx)
+                elif playback_time_seconds > note_obj.start_time + note_obj.duration: autoplay_sound_played_for_note.discard(note_idx)
         elif game_mode == "play" and not is_paused_by_user:
             if next_note_idx_in_play_mode < len(sample_notes_sequence):
-                expected_note = sample_notes_sequence[next_note_idx_in_play_mode]
-                expected_midi_in_play_mode = expected_note.note_midi
-                if playback_time_seconds >= expected_note.start_time:
-                    is_paused_by_system = True # Pause time, wait for user input
-                else:
-                    is_paused_by_system = False
-                    expected_midi_in_play_mode = None
-            else: # Song finished in play mode
-                if not loop_mode_enabled: # If not looping, then stop and switch
-                    print("Play mode: Song finished!")
-                    is_paused_by_system = True
-                    expected_midi_in_play_mode = None
-                    game_mode = "watch"
-                    is_paused_by_user = True # Effectively stop until user interaction
-                    buttons[1]["text"] = "Pause" # Ensure pause button shows "Pause"
-                    # playback_time_seconds = 0 # Reset time for watch mode on next start
-                    # next_note_idx_in_play_mode = 0 # Reset play mode progress
-                    # autoplay_sound_played_for_note.clear()
+                expected_note = sample_notes_sequence[next_note_idx_in_play_mode]; expected_midi_in_play_mode = expected_note.note_midi
+                if playback_time_seconds >= expected_note.start_time: is_paused_by_system = True
+                else: is_paused_by_system = False; expected_midi_in_play_mode = None
+            elif not loop_mode_enabled: print("Play mode: Song finished!"); is_paused_by_system = True; expected_midi_in_play_mode = None; game_mode = "watch"; is_paused_by_user = True; buttons[1]["text"] = "Pause"
 
-        # --- Event Handling ---
         user_pressed_midi_this_event = None
         for evt in pygame.event.get():
             if evt.type == pygame.QUIT: app_is_running = False
-
-            # Mode Toggle Key (M)
             if evt.type == pygame.KEYDOWN and evt.key == pygame.K_m:
-                game_mode = "play" if game_mode == "watch" else "watch"
-                print(f"Switched to {game_mode.upper()} mode")
-                playback_time_seconds = 0
-                next_note_idx_in_play_mode = 0
-                is_paused_by_user = False; buttons[1]["text"] = "Pause"
-                is_paused_by_system = False
-                expected_midi_in_play_mode = None
-                currently_active_midis_user.clear()
-                autoplay_sound_played_for_note.clear()
-                pc_keys_held_down.clear()
+                game_mode = "play" if game_mode == "watch" else "watch"; print(f"Switched to {game_mode.upper()} mode")
+                playback_time_seconds = 0; next_note_idx_in_play_mode = 0; is_paused_by_user = False; buttons[1]["text"] = "Pause"; is_paused_by_system = False; expected_midi_in_play_mode = None; currently_active_midis_user.clear(); autoplay_sound_played_for_note.clear(); pc_keys_held_down.clear()
 
-            # Control Panel Button Clicks
             if evt.type == pygame.MOUSEBUTTONDOWN and evt.button == 1:
                 clicked_on_button = False
                 for btn_idx, btn in enumerate(buttons):
                     if btn["rect"].collidepoint(evt.pos):
-                        clicked_on_button = True
-                        action_id = btn["id"]
-                        if action_id == "start":
-                            playback_time_seconds = 0.0
-                            next_note_idx_in_play_mode = 0
-                            is_paused_by_user = False; buttons[1]["text"] = "Pause"
-                            is_paused_by_system = False
-                            autoplay_sound_played_for_note.clear()
-                            print("Start pressed")
-                        elif action_id == "pause":
-                            is_paused_by_user = not is_paused_by_user
-                            btn["text"] = "Resume" if is_paused_by_user else "Pause"
-                            print(f"Pause/Resume pressed. Paused: {is_paused_by_user}")
-                        elif action_id == "stop":
-                            playback_time_seconds = 0.0
-                            next_note_idx_in_play_mode = 0
-                            is_paused_by_user = True; buttons[1]["text"] = "Pause"
-                            is_paused_by_system = False
-                            expected_midi_in_play_mode = None
-                            currently_active_midis_user.clear(); autoplay_active_midis_visual.clear(); autoplay_sound_played_for_note.clear()
-                            print("Stop pressed")
-                        elif action_id == "loop":
-                            loop_mode_enabled = not loop_mode_enabled
-                            btn["text"] = f"Loop: {"ON" if loop_mode_enabled else "OFF"}"
-                            print(f"Loop mode: {loop_mode_enabled}")
-                        break # Button click handled
-
-                # If click was not on a button, treat as piano key press
+                        clicked_on_button = True; action_id = btn["id"]
+                        if action_id == "start": playback_time_seconds = 0.0; next_note_idx_in_play_mode = 0; is_paused_by_user = False; buttons[1]["text"] = "Pause"; is_paused_by_system = False; autoplay_sound_played_for_note.clear(); print("Start pressed")
+                        elif action_id == "pause": is_paused_by_user = not is_paused_by_user; btn["text"] = "Resume" if is_paused_by_user else "Pause"; print(f"Paused: {is_paused_by_user}")
+                        elif action_id == "stop": playback_time_seconds = 0.0; next_note_idx_in_play_mode = 0; is_paused_by_user = True; buttons[1]["text"] = "Pause"; is_paused_by_system = False; expected_midi_in_play_mode = None; currently_active_midis_user.clear(); autoplay_active_midis_visual.clear(); autoplay_sound_played_for_note.clear(); print("Stop pressed")
+                        elif action_id == "loop": loop_mode_enabled = not loop_mode_enabled; btn["text"] = f"Loop: {"ON" if loop_mode_enabled else "OFF"}"; print(f"Loop: {loop_mode_enabled}")
+                        break
                 if not clicked_on_button:
                     found_key_midi = None
                     for midi, rect in black_keys_map.items():
                         if rect.collidepoint(evt.pos): found_key_midi = midi; break
-                    if not found_key_midi:
+                    if not found_key_midi: # Check white keys if not found in black
                         for midi, rect in white_keys_map.items():
                             if rect.collidepoint(evt.pos): found_key_midi = midi; break
-                    if found_key_midi is not None:
-                        user_pressed_midi_this_event = found_key_midi
-                        currently_active_midis_user.add(found_key_midi)
-                        mouse_button_held_midi = found_key_midi
-                        if main_placeholder_sound: main_placeholder_sound.play()
+                    if found_key_midi is not None: user_pressed_midi_this_event = found_key_midi; currently_active_midis_user.add(found_key_midi); mouse_button_held_midi = found_key_midi; (main_placeholder_sound and main_placeholder_sound.play())
 
-            # Mouse Button Up (for piano keys)
             if evt.type == pygame.MOUSEBUTTONUP and evt.button == 1:
-                # Only deactivate if it was a piano key press, not a button interaction
-                is_over_button = False
-                for btn in buttons: # Check if mouse up is over a button
-                    if btn["rect"].collidepoint(evt.pos): is_over_button = True; break
-                if mouse_button_held_midi is not None and not is_over_button:
-                    currently_active_midis_user.discard(mouse_button_held_midi)
-                    mouse_button_held_midi = None
+                is_over_button = any(btn["rect"].collidepoint(evt.pos) for btn in buttons)
+                if mouse_button_held_midi is not None and not is_over_button: currently_active_midis_user.discard(mouse_button_held_midi); mouse_button_held_midi = None
 
-            # Key Down (PC Keyboard - for piano keys)
             if evt.type == pygame.KEYDOWN:
                 pk_code = evt.key
-                if pk_code != pygame.K_m: # Exclude mode switch key from piano input
+                if pk_code != pygame.K_m:
                     if pk_code in KEY_TO_MIDI_MAP and pk_code not in pc_keys_held_down:
-                        midi_to_play = KEY_TO_MIDI_MAP[pk_code]
-                        m_min, m_max = KEYBOARD_START_MIDI, KEYBOARD_START_MIDI + (NUM_OCTAVES * 12) - 1
-                        if m_min <= midi_to_play <= m_max and (midi_to_play in white_keys_map or midi_to_play in black_keys_map):
-                            user_pressed_midi_this_event = midi_to_play
-                            currently_active_midis_user.add(midi_to_play)
-                            pc_keys_held_down.add(pk_code)
-                            if main_placeholder_sound: main_placeholder_sound.play()
+                        midi_to_play = KEY_TO_MIDI_MAP[pk_code]; m_min,m_max = KEYBOARD_START_MIDI,KEYBOARD_START_MIDI+(NUM_OCTAVES*12)-1
+                        if m_min <= midi_to_play <= m_max and (midi_to_play in white_keys_map or midi_to_play in black_keys_map): user_pressed_midi_this_event = midi_to_play; currently_active_midis_user.add(midi_to_play); pc_keys_held_down.add(pk_code); (main_placeholder_sound and main_placeholder_sound.play())
 
-            # Key Up (PC Keyboard - for piano keys)
             if evt.type == pygame.KEYUP:
                 rk_code = evt.key
-                if rk_code in KEY_TO_MIDI_MAP and rk_code in pc_keys_held_down:
-                    midi_to_deactivate = KEY_TO_MIDI_MAP[rk_code]
-                    currently_active_midis_user.discard(midi_to_deactivate)
-                    pc_keys_held_down.remove(rk_code)
+                if rk_code in KEY_TO_MIDI_MAP and rk_code in pc_keys_held_down: currently_active_midis_user.discard(KEY_TO_MIDI_MAP[rk_code]); pc_keys_held_down.remove(rk_code)
 
-            # Play Mode: Check if user pressed the correct key (after all events for this frame)
             if game_mode == "play" and is_paused_by_system and user_pressed_midi_this_event is not None:
                 if user_pressed_midi_this_event == expected_midi_in_play_mode:
-                    print(f"Correct! Played: {user_pressed_midi_this_event}")
-                    next_note_idx_in_play_mode += 1
-                    is_paused_by_system = False # Resume time progression
-                    expected_midi_in_play_mode = None
-                    if next_note_idx_in_play_mode < len(sample_notes_sequence):
-                        # Option 1: Jump time to the start of the next note to be played
-                        playback_time_seconds = sample_notes_sequence[next_note_idx_in_play_mode].start_time
-                        # Option 2: Or let time flow naturally if notes are close
-                    elif not loop_mode_enabled: # Song finished and not looping
-                        print("Play mode: Song finished (all notes played)!")
-                        is_paused_by_system = True # Stop time
-                        game_mode = "watch" # Revert to watch mode
-                        is_paused_by_user = True # Effectively stop until user interaction via buttons
-                        buttons[1]["text"] = "Pause" # Ensure pause button state is consistent
-                else:
-                    print(f"Incorrect. Expected {expected_midi_in_play_mode}, got {user_pressed_midi_this_event}")
+                    print(f"Correct! Played: {user_pressed_midi_this_event}"); next_note_idx_in_play_mode += 1; is_paused_by_system = False; expected_midi_in_play_mode = None
+                    if next_note_idx_in_play_mode < len(sample_notes_sequence): playback_time_seconds = sample_notes_sequence[next_note_idx_in_play_mode].start_time
+                    elif not loop_mode_enabled: print("Play mode: Song finished!"); is_paused_by_system = True; game_mode = "watch"; is_paused_by_user = True; buttons[1]["text"] = "Pause"
+                else: print(f"Incorrect. Expected {expected_midi_in_play_mode}, got {user_pressed_midi_this_event}")
 
-        # --- Drawing ---
-        main_screen.fill(DARK_BLUE)
-        render_starfield(main_screen, stars_data)
-        pygame.draw.rect(main_screen, GREY, (0, 0, SCREEN_WIDTH, HEADER_HEIGHT)) # Header
-        pygame.draw.rect(main_screen, GREY, (0, CONTROL_PANEL_Y_START, SCREEN_WIDTH, CONTROL_PANEL_HEIGHT)) # Control Panel BG
-
-        keys_to_highlight_on_keyboard = set(currently_active_midis_user)
-        if game_mode == "watch":
-            keys_to_highlight_on_keyboard.update(autoplay_active_midis_visual)
-
+        main_screen.fill(DARK_BLUE); render_starfield(main_screen, stars_data)
+        pygame.draw.rect(main_screen, GREY, (0,0,SCREEN_WIDTH,HEADER_HEIGHT)); pygame.draw.rect(main_screen, GREY, (0,CONTROL_PANEL_Y_START,SCREEN_WIDTH,CONTROL_PANEL_HEIGHT))
+        keys_to_highlight = set(currently_active_midis_user); # Highlight user presses
+        if game_mode == "watch": keys_to_highlight.update(autoplay_active_midis_visual)
         render_piano_roll(main_screen, sample_notes_sequence, playback_time_seconds, white_keys_map, black_keys_map, NOTE_FALL_SPEED, ACTION_LINE_Y, MAIN_VIEW_TOP_Y, KEYBOARD_TOP_Y, game_mode, is_paused_by_system, expected_midi_in_play_mode)
-        render_keyboard(main_screen, white_keys_map, black_keys_map, keys_to_highlight_on_keyboard)
-        render_buttons(main_screen, mouse_current_pos) # Draw buttons
-
+        render_keyboard(main_screen, white_keys_map, black_keys_map, keys_to_highlight)
+        render_buttons(main_screen, mouse_current_pos)
         pygame.display.flip()
 
-    pygame.quit()
-    sys.exit()
+    pygame.quit(); sys.exit()
 
 if __name__ == "__main__":
     main_application()
 
-# --- Additions for Step 6: Search Module (Simplified) ---
+# --- Additions for Step 6: Search Module ---
 try:
     import requests
     import mido
     from bs4 import BeautifulSoup
     LIBS_LOADED_STEP6 = True
-    print('Step 6 libraries (requests, mido, bs4) successfully imported.')
+    print('Step 6 libraries (requests, mido, bs4) loaded successfully at import time.')
 except ImportError as import_err:
-    print(f'Error importing Step 6 libraries: {import_err}')
+    print(f'Error importing Step 6 libraries at import time: {import_err}')
     LIBS_LOADED_STEP6 = False
 
-LIGHT_BLUE = (173, 216, 230) # Define new color
+# New color constant for search UI
+LIGHT_BLUE = (173, 216, 230) # Defined here, ensure it's integrated with other colors or used directly
 
+# Global variables for search functionality
 search_input_text = ''
 search_input_rect = None
 search_button_rect = None
-search_active = False
-search_status_messages = []
+search_active = False # Is the search input field active?
+search_status_messages = [] # To display messages like 'Searching...' or results
 
-def initialize_search_module_ui_placeholder():
-    global search_input_rect, search_button_rect, control_panel_font, buttons, LIGHT_BLUE # Make sure LIGHT_BLUE is accessible or defined before this
-    # This function should be called in main_application after initialize_buttons
-    # Ensure control_panel_font is loaded
-    if control_panel_font is None: control_panel_font = pygame.font.SysFont('Arial', 20)
-    input_box_w,input_box_h,search_btn_w,pad = 200,30,80,10
-    start_x = SCREEN_WIDTH - pad - search_btn_w - pad - input_box_w # Align to right
+# --- Search Module UI Functions (Placeholders/Initial Structure) ---
+def initialize_search_module_ui():
+    global search_input_rect, search_button_rect, control_panel_font, buttons
+    # Ensure control_panel_font is loaded (typically in main_application)
+    if control_panel_font is None: control_panel_font = pygame.font.SysFont('Arial', 20) # Fallback
+    input_box_w = 200; input_box_h = 30; search_btn_w = 80; pad = 10
+    # Position after existing Loop button (buttons[3]) or to the right of the screen
+    start_x_search = SCREEN_WIDTH - pad - search_btn_w - pad - input_box_w # Default to right edge
     if buttons and len(buttons) > 3 and buttons[3]['rect'] is not None:
+        # Try to position next to the last button if space permits
         possible_start_x = buttons[3]['rect'].right + pad * 2
         if possible_start_x + input_box_w + pad + search_btn_w + pad < SCREEN_WIDTH:
-            start_x = possible_start_x
+            start_x_search = possible_start_x
     search_input_y = CONTROL_PANEL_Y_START + (CONTROL_PANEL_HEIGHT - input_box_h) / 2
-    search_input_rect = pygame.Rect(start_x, search_input_y, input_box_w, input_box_h)
-    search_button_rect = pygame.Rect(start_x + input_box_w + pad, search_input_y, search_btn_w, input_box_h)
-    print('Search UI initialized (placeholder).')
+    search_input_rect = pygame.Rect(start_x_search, search_input_y, input_box_w, input_box_h)
+    search_button_rect = pygame.Rect(start_x_search + input_box_w + pad, search_input_y, search_btn_w, input_box_h)
 
-def render_search_module_ui_placeholder(surface, mouse_pos):
-    global search_input_text, search_active, search_input_rect, search_button_rect, control_panel_font, search_status_messages, LIGHT_BLUE
-    # This function should be called in the main draw loop
+def render_search_module_ui(surface, mouse_pos):
+    global search_input_text, search_active, search_input_rect, search_button_rect, control_panel_font, search_status_messages
     if not search_input_rect or not control_panel_font: return
     input_box_clr = LIGHT_BLUE if search_active else WHITE
     pygame.draw.rect(surface, input_box_clr, search_input_rect); pygame.draw.rect(surface, BLACK, search_input_rect, 2)
@@ -470,41 +370,37 @@ def render_search_module_ui_placeholder(surface, mouse_pos):
     sbtn_clr = LIGHT_GREY if search_button_rect.collidepoint(mouse_pos) else GREY
     pygame.draw.rect(surface, sbtn_clr, search_button_rect)
     s_txt_sf = control_panel_font.render('Search', True, BLACK); surface.blit(s_txt_sf, s_txt_sf.get_rect(center=search_button_rect.center))
-    msg_y = CONTROL_PANEL_Y_START - 25
-    for i, msg in enumerate(search_status_messages[-2:]): # Display last 2 messages
-        st_sf = control_panel_font.render(msg, True, WHITE); st_r = st_sf.get_rect(center=(SCREEN_WIDTH/2, msg_y - i * 20)); surface.blit(st_sf, st_r)
+    msg_y_start = CONTROL_PANEL_Y_START - 25
+    for idx, msg in enumerate(search_status_messages[-2:]): # Display last 2 messages
+        status_surf = control_panel_font.render(msg, True, WHITE)
+        status_rect = status_surf.get_rect(center=(SCREEN_WIDTH / 2, msg_y_start - idx * 20))
+        surface.blit(status_surf, status_rect)
 
 def search_songs_online_placeholder(query):
     global search_status_messages, LIBS_LOADED_STEP6
-    print(f'Search placeholder activated for: {query}')
-    search_status_messages = [f'Searching: {query[:25]}...']
+    print(f'Search placeholder for: {query}')
+    search_status_messages = [f'Searching: {query[:30]}...']
     if not query.strip(): search_status_messages.append('Enter search term.'); return []
     if not LIBS_LOADED_STEP6: search_status_messages.append('Search libs not loaded.'); return []
     search_status_messages.append('Web search (simulated).')
-    return [{'title': f'{query} - Result 1 (dummy)', 'url': 'dummy_1.mid'}, {'title': 'Another Song (dummy)', 'url': 'dummy_2.mid'}]
+    return [{'title': f'{query} - Result 1', 'url': 'dummy_1.mid'}, {'title': 'Another Song', 'url': 'dummy_2.mid'}]
 
 def download_and_parse_midi_placeholder(song_info):
-    global search_status_messages, LIBS_LOADED_STEP6, sample_notes_sequence, playback_time_seconds, next_note_idx_in_play_mode, song_duration, autoplay_sound_played_for_note, is_paused_by_system, expected_midi_in_play_mode
+    global search_status_messages, LIBS_LOADED_STEP6, sample_notes_sequence, playback_time_seconds, next_note_idx_in_play_mode, song_duration, is_paused_by_system, expected_midi_in_play_mode, autoplay_sound_played_for_note
     title = song_info.get('title', 'Unknown'); url = song_info.get('url', 'unknown_url')
     print(f'Download/parse placeholder for: {title}')
-    search_status_messages = [f'Loading: {title[:25]}...']
+    search_status_messages = [f'Loading: {title[:30]}...']
     if not LIBS_LOADED_STEP6: search_status_messages.append('MIDI libs not loaded.'); return
     new_song = []
-    if 'Result 1' in title: new_song = [Note(60,1.0,0.5), Note(62,1.5,0.5), Note(65,2.0,0.5)]
-    elif 'Another Song' in title: new_song = [Note(67,1.0,0.5), Note(69,1.5,0.5), Note(71,2.0,0.5)]
+    if 'Result 1' in title: new_song = [Note(60,1,0.5), Note(64,1.5,0.5), Note(67,2,0.5)]
+    elif 'Another Song' in title: new_song = [Note(72,1,0.5), Note(71,1.5,0.5), Note(69,2,0.5)]
     else: search_status_messages.append(f'No simulation for {title}'); return
-    sample_notes_sequence = new_song; search_status_messages.append(f'Loaded \'{title[:25]}\'.')
+    sample_notes_sequence = new_song; search_status_messages.append(f'Loaded \'{title[:30]}\'.')
     playback_time_seconds = 0.0; next_note_idx_in_play_mode = 0
-    song_duration = max(n.start_time + n.duration for n in sample_notes_sequence) if sample_notes_sequence else 0.0
-    is_paused_by_system = False; expected_midi_in_play_mode = None
-    if autoplay_sound_played_for_note is not None: autoplay_sound_played_for_note.clear()
+    song_duration = max(n.start_time+n.duration for n in sample_notes_sequence) if sample_notes_sequence else 0.0
+    is_paused_by_system = False; expected_midi_in_play_mode = None; autoplay_sound_played_for_note.clear()
     print(f'Simulated loading of {title}. Playback reset.')
 
-# --- TODO for Step 6 Integration ---
-# 1. Add LIGHT_BLUE to the main color definitions tuple.
-# 2. Call initialize_search_module_ui_placeholder() in main_application() after initialize_buttons().
-# 3. Call render_search_module_ui_placeholder() in the main loop's drawing section.
-# 4. Add event handling for search_active, search_input_text, and search_button_rect clicks in the main event loop.
-#    - MOUSEBUTTONDOWN to activate search_input_rect or click search_button_rect.
-#    - KEYDOWN to populate search_input_text if search_active.
-#    - Ensure search input doesn't trigger piano keys.
+# Ensure main_application() is the last major function before if __name__ == '__main__':
+# Modifications to main_application() itself will be done in a subsequent step by reading this file,
+# then modifying its content in memory, and writing back.
